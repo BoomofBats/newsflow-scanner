@@ -18,6 +18,7 @@ import yfinance as yf
 import pandas as pd
 import datetime
 import time
+import pytz
 
 # ─────────────────────────────────────────────
 #  PAGE CONFIG
@@ -421,18 +422,24 @@ with st.sidebar:
 # ─────────────────────────────────────────────
 #  HEADER
 # ─────────────────────────────────────────────
-now_et = datetime.datetime.now()
+eastern = pytz.timezone("America/New_York")
+now_et  = datetime.datetime.now(eastern)
 st.title("⚡ NewsFlow Day Trader")
-st.caption(f"Momentum pullback scanner · {now_et.strftime('%Y-%m-%d %H:%M')} · Intraday only — close all positions by 4 PM")
+st.caption(f"Momentum pullback scanner · {now_et.strftime('%Y-%m-%d %H:%M')} ET · Intraday only — close all positions by 4 PM ET")
 
-# Market hours warning
+# Market hours warning — correct US Eastern time
 hour = now_et.hour
-if hour < 9 or (hour == 9 and now_et.minute < 30):
-    st.warning("⏰ Market not open yet. Pre-market data will be used — signals will update once market opens at 9:30 AM ET.")
-elif hour >= 15 and now_et.minute >= 30:
+mkt_open   = (hour > 9 or (hour == 9 and now_et.minute >= 30)) and hour < 16
+pre_market = hour < 9 or (hour == 9 and now_et.minute < 30)
+closing    = hour == 15 and now_et.minute >= 30
+closed     = hour >= 16 or hour < 4
+
+if pre_market:
+    st.warning("⏰ Pre-market. Market opens at 9:30 AM ET — signals will sharpen once trading begins.")
+elif closing:
     st.error("🔔 Market closes in under 30 minutes. Close any open positions before 4 PM ET.")
-elif hour >= 16:
-    st.error("🔴 Market is closed. Run this scanner tomorrow during market hours.")
+elif closed:
+    st.error("🔴 Market is closed. Run this scanner when market opens at 9:30 AM ET tomorrow.")
 
 if not run:
     st.info("👈 Click **Scan Now** to find momentum pullback setups right now.")
