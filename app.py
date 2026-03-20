@@ -1,12 +1,16 @@
 """
-NewsFlow Scanner v2 — Yahoo Finance Edition
-============================================
-News-first stock scanner. BUY recommendations driven by
-Yahoo Finance news sentiment + price/volume confirmation.
+NewsFlow Day Trading Scanner
+=============================
+Momentum pullback strategy — find news-driven stocks,
+wait for the pullback, enter when momentum resumes.
 
-Deploy to Streamlit Cloud:
-  1. Push app.py + requirements.txt to GitHub
-  2. Connect at share.streamlit.io
+Optimised for:
+  • Small accounts ($500–$2,000)
+  • Intraday only — no overnight holds
+  • Momentum pullback entries
+  • Tight ATR-based stops on 15min chart
+
+Deploy: push to GitHub → share.streamlit.io
 """
 
 import streamlit as st
@@ -19,8 +23,8 @@ import time
 #  PAGE CONFIG
 # ─────────────────────────────────────────────
 st.set_page_config(
-    page_title="NewsFlow Scanner",
-    page_icon="📰",
+    page_title="NewsFlow Day Trader",
+    page_icon="⚡",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -28,14 +32,18 @@ st.set_page_config(
 st.markdown("""
 <style>
 .block-container { padding-top: 1.2rem; }
-.buy-pill  { background:#0d6b45; color:#d4f0e4; padding:3px 10px; border-radius:12px; font-weight:600; font-size:13px; }
-.hold-pill { background:#7a4e00; color:#fff3d4; padding:3px 10px; border-radius:12px; font-weight:600; font-size:13px; }
-.avoid-pill{ background:#8b1a1a; color:#fde0e0; padding:3px 10px; border-radius:12px; font-weight:600; font-size:13px; }
-.conf-bar-wrap { background:#2a2a2a; border-radius:6px; height:8px; width:100%; }
-.reason-text { font-size:12px; color:#aaa; font-style:italic; }
-.headline-text { font-size:12px; color:#ccc; }
-.tv-btn { background:#2962ff; color:white; padding:4px 12px; border-radius:6px; font-size:12px; text-decoration:none; font-weight:500; }
-div[data-testid="stMetricValue"] { font-size:1.8rem; }
+.buy-pill   { background:#0d6b45; color:#d4f0e4; padding:3px 12px; border-radius:12px; font-weight:700; font-size:14px; }
+.wait-pill  { background:#7a4e00; color:#fff3d4; padding:3px 12px; border-radius:12px; font-weight:700; font-size:14px; }
+.avoid-pill { background:#8b1a1a; color:#fde0e0; padding:3px 12px; border-radius:12px; font-weight:700; font-size:14px; }
+.conf-bar   { height:8px; border-radius:6px; margin-top:4px; }
+.news-hl    { font-size:12px; color:#bbb; font-style:italic; margin:2px 0; }
+.rule-box   { background:#1a1a2e; border:1px solid #2a2a4e; border-radius:8px; padding:12px 16px; font-size:13px; }
+.tag        { display:inline-block; padding:2px 8px; border-radius:10px; font-size:11px; font-weight:600; margin:1px; }
+.tag-gap    { background:#1a3a5c; color:#60b4ff; }
+.tag-vol    { background:#1a5c2a; color:#60ff8a; }
+.tag-mom    { background:#3a1a5c; color:#c060ff; }
+.tag-news   { background:#5c3a1a; color:#ffb060; }
+div[data-testid="stMetricValue"] { font-size:1.6rem; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -43,34 +51,29 @@ div[data-testid="stMetricValue"] { font-size:1.8rem; }
 #  WATCHLISTS
 # ─────────────────────────────────────────────
 WATCHLISTS = {
-    "🔥 Major US Stocks (67)": [
-        "AAPL","MSFT","NVDA","AMZN","META","GOOGL","TSLA","AVGO","JPM","V",
-        "UNH","LLY","XOM","MA","JNJ","PG","HD","MRK","ABBV","CVX",
-        "BAC","COST","NFLX","AMD","ADBE","CRM","TMO","PEP","ORCL","ACN",
-        "MCD","QCOM","INTC","WMT","DIS","GS","MS","AMGN","IBM","CAT",
-        "BA","GE","F","GM","RIVN","PLTR","SOFI","HOOD","COIN","RBLX",
-        "SNAP","UBER","LYFT","SPOT","PINS","TWLO","SQ","PYPL","SHOP","NET",
-        "SPY","QQQ","IWM","XLF","XLE","XLK","ARKK",
+    "⚡ Day Trading Favorites (50)": [
+        "AAPL","MSFT","NVDA","AMD","META","TSLA","AMZN","GOOGL","NFLX","COIN",
+        "PLTR","SOFI","HOOD","RIVN","NIO","UBER","SNAP","RBLX","SHOP","PYPL",
+        "SQ","ROKU","TWLO","NET","DDOG","CRWD","ZS","OKTA","SNOW","ABNB",
+        "LYFT","SPOT","PINS","WISH","GME","AMC","BB","SPCE","SNDL","TLRY",
+        "F","GM","INTC","BAC","GS","JPM","XOM","CVX","SPY","QQQ",
     ],
     "💻 Tech (20)": [
-        "AAPL","MSFT","NVDA","AMD","INTC","AVGO","QCOM","ORCL","IBM","CRM",
-        "ADBE","SHOP","NET","TWLO","SNOW","DDOG","ZS","CRWD","OKTA","PLTR",
+        "AAPL","MSFT","NVDA","AMD","INTC","AVGO","QCOM","ORCL","CRM","ADBE",
+        "SHOP","NET","TWLO","SNOW","DDOG","ZS","CRWD","OKTA","PLTR","COIN",
     ],
-    "🏦 Finance (20)": [
+    "🚀 High Vol / Meme (20)": [
+        "GME","AMC","SPCE","CLOV","NKLA","SNDL","TLRY","BB","NOK","WISH",
+        "CTRM","SENS","GNUS","BBIG","ATER","PROG","MVIS","WKHS","RIVN","LCID",
+    ],
+    "🏦 Finance (15)": [
         "JPM","BAC","GS","MS","V","MA","PYPL","SQ","HOOD","SOFI",
-        "C","WFC","AXP","COF","BLK","SCHW","IBKR","CME","ICE","NDAQ",
-    ],
-    "🚗 EV & Auto (12)": [
-        "TSLA","RIVN","LCID","NIO","LI","XPEV","GM","F","STLA","TM","HMC","SONY",
-    ],
-    "🚀 High Volatility (18)": [
-        "GME","AMC","SPCE","CLOV","NKLA","SNDL","TLRY","BB","NOK",
-        "WISH","CTRM","SENS","GNUS","BBIG","ATER","PROG","MVIS","WKHS",
+        "C","WFC","AXP","COF","COIN",
     ],
 }
 
 # ─────────────────────────────────────────────
-#  NEWS SENTIMENT ENGINE
+#  NEWS SCORING  (same engine as v2)
 # ─────────────────────────────────────────────
 BULLISH_KW = [
     "beat","beats","exceeds","record","surge","soar","rally","upgrade",
@@ -89,326 +92,290 @@ BEARISH_KW = [
     "revenue decline","faces pressure","regulatory risk",
 ]
 
-def score_news(news_items: list) -> dict:
-    """
-    Full news scoring. Returns a dict with:
-      - sentiment_score  0–100
-      - direction        bull / bear / neutral
-      - confidence       how strong the signal is (0–100)
-      - top_headlines    list of up to 3 most relevant headlines
-      - reason           human-readable explanation
-      - news_count
-      - recency_bonus    were there very recent articles?
-    """
+def score_news(news_items):
     if not news_items:
-        return {
-            "sentiment_score": 50, "direction": "neutral",
-            "confidence": 0, "top_headlines": [],
-            "reason": "No recent news found on Yahoo Finance.",
-            "news_count": 0, "recency_bonus": False,
-        }
+        return {"score": 50, "direction": "neutral", "confidence": 0,
+                "headlines": [], "reason": "No news found.", "count": 0, "fresh": False}
 
     now = datetime.datetime.now(datetime.timezone.utc).timestamp()
-    bull_score = 0.0
-    bear_score = 0.0
-    headlines_scored = []  # (recency, bull_hits, bear_hits, title)
-    recency_bonus = False
+    bull, bear = 0.0, 0.0
+    scored, fresh = [], False
 
     for item in news_items[:20]:
-        content = item.get("content", {})
+        content   = item.get("content", {})
         title_raw = content.get("title") or item.get("title") or ""
-        title = title_raw.lower()
-
-        pub = content.get("pubDate") or item.get("providerPublishTime") or 0
+        title     = title_raw.lower()
+        pub       = content.get("pubDate") or item.get("providerPublishTime") or 0
         if isinstance(pub, str):
             try:
-                pub = datetime.datetime.fromisoformat(
-                    pub.replace("Z", "+00:00")).timestamp()
+                pub = datetime.datetime.fromisoformat(pub.replace("Z","+00:00")).timestamp()
             except Exception:
                 pub = 0
 
         age_h = (now - pub) / 3600 if pub else 48
-        if age_h <= 2:
-            rec = 1.0
-            recency_bonus = True
-        elif age_h <= 6:
-            rec = 0.8
-        elif age_h <= 24:
-            rec = 0.5
-        else:
-            rec = 0.15
+        rec   = 1.0 if age_h <= 1 else 0.8 if age_h <= 3 else 0.5 if age_h <= 8 else 0.2
+        if age_h <= 3:
+            fresh = True
 
-        bull_hits = sum(1 for kw in BULLISH_KW if kw in title)
-        bear_hits = sum(1 for kw in BEARISH_KW if kw in title)
+        bh = sum(1 for kw in BULLISH_KW if kw in title)
+        brh= sum(1 for kw in BEARISH_KW if kw in title)
+        bull += bh  * rec
+        bear += brh * rec
+        if (bh > 0 or brh > 0) and title_raw:
+            scored.append((rec * (bh + brh), title_raw))
 
-        bull_score += bull_hits * rec
-        bear_score += bear_hits * rec
-
-        if (bull_hits > 0 or bear_hits > 0) and title_raw:
-            headlines_scored.append((rec, bull_hits, bear_hits, title_raw))
-
-    # Sort headlines by recency × relevance
-    headlines_scored.sort(key=lambda x: x[0] * (x[1] + x[2]), reverse=True)
-    top_headlines = [h[3] for h in headlines_scored[:3]]
-
-    total = bull_score + bear_score
-    news_count = len(news_items)
+    scored.sort(reverse=True)
+    headlines = [h[1] for h in scored[:3]]
+    total     = bull + bear
+    count     = len(news_items)
 
     if total == 0:
-        # No keyword matches — neutral, low confidence
-        direction = "neutral"
-        sentiment_score = 50
-        raw_confidence = 5
-        reason = f"Found {news_count} articles but none contained strong bullish or bearish signals."
+        return {"score": 50, "direction": "neutral", "confidence": 5,
+                "headlines": headlines, "reason": f"{count} articles, no strong keywords.", "count": count, "fresh": fresh}
+
+    ratio = bull / total
+    if ratio >= 0.65:
+        direction  = "bull"
+        score      = round(50 + (ratio - 0.5) * 90, 1)
+        confidence = round(ratio * 75)
+        reason     = f"{round(ratio*100)}% bullish news weight · {count} articles"
+    elif ratio <= 0.35:
+        direction  = "bear"
+        score      = round(50 - (0.5 - ratio) * 90, 1)
+        confidence = round((1 - ratio) * 75)
+        reason     = f"{round((1-ratio)*100)}% bearish news weight · {count} articles"
     else:
-        bull_ratio = bull_score / total
-        if bull_ratio >= 0.70:
-            direction = "bull"
-            sentiment_score = round(50 + (bull_ratio - 0.5) * 90, 1)
-            raw_confidence = round(bull_ratio * 80)
-            reason = _build_reason("bull", bull_score, bear_score, news_count, recency_bonus, headlines_scored)
-        elif bull_ratio <= 0.30:
-            direction = "bear"
-            sentiment_score = round(50 - (0.5 - bull_ratio) * 90, 1)
-            raw_confidence = round((1 - bull_ratio) * 80)
-            reason = _build_reason("bear", bull_score, bear_score, news_count, recency_bonus, headlines_scored)
-        else:
-            direction = "neutral"
-            sentiment_score = 50
-            raw_confidence = round(30 - abs(bull_ratio - 0.5) * 60)
-            reason = f"Mixed signals — {round(bull_ratio*100)}% of news weight is bullish, {round((1-bull_ratio)*100)}% bearish. No clear edge."
+        direction  = "neutral"
+        score      = 50.0
+        confidence = 10
+        reason     = f"Mixed signals · {count} articles"
 
-    # Recency boost: very fresh news = stronger conviction
-    if recency_bonus:
-        raw_confidence = min(raw_confidence + 15, 95)
+    if fresh:
+        confidence = min(confidence + 15, 95)
+        reason    += " · fresh news"
+    confidence = min(confidence + min(count * 2, 10), 98)
 
-    # Volume of coverage boost
-    coverage_boost = min(news_count * 2, 10)
-    confidence = min(raw_confidence + coverage_boost, 98)
-
-    return {
-        "sentiment_score": min(max(sentiment_score, 0), 100),
-        "direction":       direction,
-        "confidence":      confidence,
-        "top_headlines":   top_headlines,
-        "reason":          reason,
-        "news_count":      news_count,
-        "recency_bonus":   recency_bonus,
-    }
-
-
-def _build_reason(direction, bull_score, bear_score, news_count, recency, headlines_scored):
-    total = bull_score + bear_score
-    bull_pct = round(bull_score / total * 100)
-    bear_pct = 100 - bull_pct
-    freshness = "including very recent articles" if recency else "mostly older articles"
-    kw_examples = []
-    for _, bh, brh, title in headlines_scored[:2]:
-        if direction == "bull" and bh > 0:
-            for kw in BULLISH_KW:
-                if kw in title.lower() and kw not in kw_examples:
-                    kw_examples.append(kw)
-                    break
-        elif direction == "bear" and brh > 0:
-            for kw in BEARISH_KW:
-                if kw in title.lower() and kw not in kw_examples:
-                    kw_examples.append(kw)
-                    break
-
-    kw_str = f" (keywords: {', '.join(kw_examples[:2])})" if kw_examples else ""
-    if direction == "bull":
-        return f"{bull_pct}% of news weight is bullish{kw_str}. {news_count} articles scanned, {freshness}."
-    else:
-        return f"{bear_pct}% of news weight is bearish{kw_str}. {news_count} articles scanned, {freshness}."
+    return {"score": min(max(score,0),100), "direction": direction,
+            "confidence": confidence, "headlines": headlines,
+            "reason": reason, "count": count, "fresh": fresh}
 
 
 # ─────────────────────────────────────────────
-#  PRICE CONFIRMATION ENGINE
+#  INTRADAY PRICE ANALYSIS
+#  Uses 5-min and 15-min data for day trading
 # ─────────────────────────────────────────────
-def price_confirmation(info: dict, hist: pd.DataFrame) -> dict:
+def intraday_analysis(ticker: str):
     """
-    Secondary check — does price/volume action confirm the news?
-    Returns a dict with score 0–100 and a short reason.
+    Fetches 5-min and 15-min intraday data.
+    Returns momentum pullback setup quality + tight ATR stop.
     """
-    score = 0
-    reasons = []
+    try:
+        t = yf.Ticker(ticker)
 
-    price = info.get("currentPrice") or info.get("regularMarketPrice") or 0
-    prev  = info.get("regularMarketPreviousClose") or info.get("previousClose") or price
-    open_ = info.get("regularMarketOpen") or price
-    vol   = info.get("regularMarketVolume") or 0
-    avg_v = info.get("averageVolume") or 1
+        # 5-min data — last 2 days
+        df5  = t.history(period="2d", interval="5m")
+        # 15-min data — last 5 days
+        df15 = t.history(period="5d", interval="15m")
 
-    change_pct  = ((price - prev) / prev * 100) if prev else 0
-    vol_ratio   = vol / avg_v if avg_v else 1
-    gap_pct     = ((open_ - prev) / prev * 100) if prev else 0
+        if df5 is None or len(df5) < 10:
+            return None
+        if df15 is None or len(df15) < 10:
+            return None
 
-    # Volume spike
-    if vol_ratio >= 3.0:
-        score += 35
-        reasons.append(f"vol {vol_ratio:.1f}× avg")
-    elif vol_ratio >= 2.0:
-        score += 25
-        reasons.append(f"vol {vol_ratio:.1f}× avg")
-    elif vol_ratio >= 1.5:
-        score += 15
-        reasons.append(f"vol {vol_ratio:.1f}× avg")
-
-    # Price momentum
-    if change_pct >= 3:
-        score += 30
-        reasons.append(f"+{change_pct:.1f}% today")
-    elif change_pct >= 1:
-        score += 15
-        reasons.append(f"+{change_pct:.1f}% today")
-    elif change_pct > 0:
-        score += 5
-
-    # Gap up
-    if gap_pct >= 2:
-        score += 20
-        reasons.append(f"gap +{gap_pct:.1f}%")
-    elif gap_pct >= 1:
-        score += 10
-
-    # Momentum breakout (close > 20-day high)
-    if hist is not None and len(hist) > 21:
-        high_20 = float(hist["High"].iloc[:-1].tail(20).max())
-        if price > high_20:
-            score += 15
-            reasons.append("20d breakout")
-
-    # RSI not overbought (above 70 is a warning)
-    if hist is not None and len(hist) >= 15:
-        delta = hist["Close"].diff()
-        gain  = delta.clip(lower=0).rolling(14).mean()
-        loss  = (-delta.clip(upper=0)).rolling(14).mean()
-        rs    = gain / loss.replace(0, 1e-9)
-        rsi   = float(100 - 100 / (1 + rs.iloc[-1]))
-        if rsi > 75:
-            score -= 10
-            reasons.append(f"RSI {rsi:.0f} overbought")
-        elif rsi < 40:
-            score += 5
-            reasons.append(f"RSI {rsi:.0f} oversold")
-
-    summary = ", ".join(reasons) if reasons else "no strong price confirmation"
-    return {
-        "score":       min(max(score, 0), 100),
-        "summary":     summary,
-        "change_pct":  round(change_pct, 2),
-        "vol_ratio":   round(vol_ratio, 2),
-        "gap_pct":     round(gap_pct, 2),
-        "price":       round(price, 2),
-    }
-
-
-# ─────────────────────────────────────────────
-#  BUY DECISION ENGINE
-# ─────────────────────────────────────────────
-def make_recommendation(news: dict, price: dict) -> dict:
-    """
-    Combines news sentiment (70% weight) + price confirmation (30% weight)
-    into a final BUY / HOLD / AVOID recommendation with confidence % and reason.
-    """
-    if news["direction"] == "bear":
-        return {
-            "action":     "AVOID",
-            "confidence": news["confidence"],
-            "reason":     f"Bearish news. {news['reason']}",
-        }
-
-    if news["direction"] == "neutral" or news["confidence"] < 20:
-        return {
-            "action":     "HOLD",
-            "confidence": news["confidence"],
-            "reason":     f"Unclear news signal. {news['reason']}",
-        }
-
-    # Bullish news — now check price confirmation
-    news_weight  = 0.70
-    price_weight = 0.30
-    combined = (news["confidence"] * news_weight) + (price["score"] * price_weight)
-    combined = round(combined)
-
-    if combined >= 60:
-        action = "BUY"
-        if price["score"] >= 40:
-            reason = f"{news['reason']} Price confirms: {price['summary']}."
-        else:
-            reason = f"{news['reason']} Price action is weak — consider waiting for volume confirmation."
-    elif combined >= 35:
-        action = "HOLD"
-        reason = f"Mildly bullish news but not strong enough conviction. {news['reason']}"
-    else:
-        action = "HOLD"
-        reason = f"News signal too weak to act on. {news['reason']}"
-
-    return {
-        "action":     action,
-        "confidence": combined,
-        "reason":     reason,
-    }
-
-
-# ─────────────────────────────────────────────
-#  ATR STOP / TARGET
-# ─────────────────────────────────────────────
-def compute_levels(price: float, hist: pd.DataFrame, atr_mult: float) -> dict:
-    if hist is None or len(hist) < 2:
-        stop_dist = price * 0.02
-    else:
-        tr = pd.concat([
-            hist["High"] - hist["Low"],
-            (hist["High"] - hist["Close"].shift(1)).abs(),
-            (hist["Low"]  - hist["Close"].shift(1)).abs(),
+        # ── 15-min ATR (tight stop for day trading) ──
+        tr15 = pd.concat([
+            df15["High"] - df15["Low"],
+            (df15["High"] - df15["Close"].shift(1)).abs(),
+            (df15["Low"]  - df15["Close"].shift(1)).abs(),
         ], axis=1).max(axis=1)
-        atr = float(tr.tail(14).mean())
-        stop_dist = atr * atr_mult
+        atr15 = float(tr15.tail(14).mean())
 
-    stop   = round(price - stop_dist, 2)
-    target = round(price + stop_dist * 2, 2)
-    risk   = round(stop_dist / price * 100, 1)
-    return {"stop": stop, "target": target, "risk_pct": risk}
+        # ── Current price from 5-min ──
+        price = float(df5["Close"].iloc[-1])
+
+        # ── Today's open and high ──
+        today     = datetime.date.today()
+        df5_today = df5[df5.index.date == today] if len(df5) > 0 else df5
+        if len(df5_today) == 0:
+            df5_today = df5
+
+        day_open  = float(df5_today["Open"].iloc[0])
+        day_high  = float(df5_today["High"].max())
+        day_low   = float(df5_today["Low"].min())
+        day_vol   = int(df5_today["Volume"].sum())
+
+        # ── Gap from yesterday close ──
+        df_daily  = t.history(period="5d", interval="1d")
+        prev_close= float(df_daily["Close"].iloc[-2]) if len(df_daily) >= 2 else day_open
+        gap_pct   = round((day_open - prev_close) / prev_close * 100, 2)
+
+        # ── Volume surge (today vs avg daily volume from info) ──
+        info      = t.fast_info
+        avg_vol   = getattr(info, "three_month_average_volume", None) or 1
+        vol_ratio = round(day_vol / (avg_vol / 6.5), 2)  # normalise to per-hour
+
+        # ── Momentum pullback detection ──
+        # Look for: initial surge (5-min high > open + ATR),
+        # then pullback (price came back toward VWAP / open),
+        # then resumption signal (last candle green + above open)
+        close5    = df5_today["Close"]
+        open5     = df5_today["Open"]
+        high5     = df5_today["High"]
+
+        # Initial surge: any 5-min candle made a big move up
+        surged    = any((high5 - open5) > atr15 * 0.5)
+
+        # Pullback: price has retraced at least 30% from day high
+        hl_range  = day_high - day_low
+        pullback_pct = round((day_high - price) / hl_range * 100, 1) if hl_range > 0 else 0
+        pulled_back  = 20 <= pullback_pct <= 65  # healthy retracement
+
+        # Resumption: last 5-min candle is bullish and above open
+        last_bull = float(close5.iloc[-1]) > float(open5.iloc[-1]) and float(close5.iloc[-1]) > day_open
+
+        # ── 15-min trend (simple: close > EMA9) ──
+        ema9_15   = df15["Close"].ewm(span=9).mean()
+        above_ema = float(df15["Close"].iloc[-1]) > float(ema9_15.iloc[-1])
+
+        # ── RSI 14 on 15-min ──
+        delta15   = df15["Close"].diff()
+        gain15    = delta15.clip(lower=0).rolling(14).mean()
+        loss15    = (-delta15.clip(upper=0)).rolling(14).mean()
+        rs15      = gain15 / loss15.replace(0, 1e-9)
+        rsi15     = round(float(100 - 100 / (1 + rs15.iloc[-1])), 1)
+
+        # ── Setup score (0–100) ──
+        setup_score = 0
+        if gap_pct >= 2:          setup_score += 25
+        elif gap_pct >= 1:        setup_score += 15
+        if vol_ratio >= 2.0:      setup_score += 25
+        elif vol_ratio >= 1.5:    setup_score += 15
+        if surged:                setup_score += 15
+        if pulled_back:           setup_score += 20
+        if last_bull:             setup_score += 10
+        if above_ema:             setup_score += 10
+        if 40 <= rsi15 <= 65:     setup_score += 10  # not overbought
+        elif rsi15 > 75:          setup_score -= 15  # overbought — risky entry
+        setup_score = min(setup_score, 100)
+
+        # ── Setup label ──
+        if pulled_back and last_bull and surged:
+            setup_label = "Pullback ready"
+        elif surged and not pulled_back:
+            setup_label = "Wait — no pullback yet"
+        elif gap_pct >= 2 and vol_ratio >= 1.5:
+            setup_label = "Gap setup"
+        else:
+            setup_label = "Watching"
+
+        # ── Tight stop / target for day trade ──
+        stop   = round(price - atr15 * 1.5, 2)
+        target = round(price + atr15 * 3.0, 2)   # 2:1 R/R on 15-min ATR
+        risk_pct = round(abs(price - stop) / price * 100, 1)
+
+        # ── Position size for $500–$2000 account ──
+        # Risk max 1% of $1,250 midpoint = $12.50 per trade
+        risk_dollars  = 12.50
+        stop_distance = abs(price - stop)
+        shares        = int(risk_dollars / stop_distance) if stop_distance > 0 else 1
+        shares        = max(1, min(shares, 50))  # cap at 50 shares for small account
+        trade_cost    = round(shares * price, 2)
+
+        return {
+            "price":        round(price, 2),
+            "prev_close":   round(prev_close, 2),
+            "day_open":     round(day_open, 2),
+            "day_high":     round(day_high, 2),
+            "gap_pct":      gap_pct,
+            "vol_ratio":    vol_ratio,
+            "atr15":        round(atr15, 3),
+            "rsi15":        rsi15,
+            "above_ema":    above_ema,
+            "surged":       surged,
+            "pulled_back":  pulled_back,
+            "pullback_pct": pullback_pct,
+            "last_bull":    last_bull,
+            "setup_score":  setup_score,
+            "setup_label":  setup_label,
+            "stop":         stop,
+            "target":       target,
+            "risk_pct":     risk_pct,
+            "shares":       shares,
+            "trade_cost":   trade_cost,
+        }
+
+    except Exception:
+        return None
 
 
 # ─────────────────────────────────────────────
-#  MAIN SCANNER
+#  COMBINED RECOMMENDATION
 # ─────────────────────────────────────────────
-def scan_ticker(ticker: str, atr_mult: float) -> dict | None:
+def recommend(news: dict, intraday: dict) -> dict:
+    if news["direction"] == "bear":
+        return {"action": "AVOID", "confidence": news["confidence"],
+                "reason": f"Bearish news. {news['reason']}"}
+
+    if intraday is None:
+        return {"action": "AVOID", "confidence": 0,
+                "reason": "Could not fetch intraday data."}
+
+    # Daily trend check — gap direction must match news
+    if news["direction"] == "bull" and intraday["gap_pct"] < -1:
+        return {"action": "AVOID", "confidence": 20,
+                "reason": "Bullish news but stock gapped DOWN — conflicting signal."}
+
+    # Combined score: news 60% + intraday setup 40%
+    combined = round(news["confidence"] * 0.6 + intraday["setup_score"] * 0.4)
+
+    if intraday["setup_label"] == "Pullback ready" and news["direction"] == "bull" and combined >= 55:
+        action = "BUY NOW"
+        reason = f"Momentum pullback setup ready. {news['reason']}. {intraday['setup_label']}."
+    elif intraday["setup_label"] == "Wait — no pullback yet" and news["direction"] == "bull":
+        action = "WAIT"
+        reason = f"Good news catalyst but price hasn't pulled back yet — wait for retracement before entry."
+    elif combined >= 55 and news["direction"] == "bull":
+        action = "BUY NOW"
+        reason = f"{news['reason']}. Setup: {intraday['setup_label']}."
+    elif combined >= 35:
+        action = "WAIT"
+        reason = f"Moderate signal. {news['reason']}. Setup not fully formed yet."
+    else:
+        action = "AVOID"
+        reason = f"Signal too weak. {news['reason']}"
+
+    return {"action": action, "confidence": combined, "reason": reason}
+
+
+# ─────────────────────────────────────────────
+#  FULL SCAN
+# ─────────────────────────────────────────────
+def scan(ticker: str) -> dict | None:
     try:
         t    = yf.Ticker(ticker)
         info = t.info
-        hist = t.history(period="30d")
         news = t.news or []
 
-        price_val = info.get("currentPrice") or info.get("regularMarketPrice") or 0
-        if not price_val or price_val < 1:
+        price = info.get("currentPrice") or info.get("regularMarketPrice") or 0
+        if not price or price < 1:
             return None
 
-        news_result  = score_news(news)
-        price_result = price_confirmation(info, hist)
-        rec          = make_recommendation(news_result, price_result)
-        levels       = compute_levels(price_val, hist, atr_mult)
+        news_result     = score_news(news)
+        intraday_result = intraday_analysis(ticker)
+        rec             = recommend(news_result, intraday_result)
+
+        if rec["action"] == "AVOID":
+            return None
 
         return {
-            "ticker":      ticker,
-            "company":     (info.get("longName") or info.get("shortName") or ticker)[:30],
-            "sector":      info.get("sector") or "—",
-            "price":       price_result["price"],
-            "change_pct":  price_result["change_pct"],
-            "vol_ratio":   price_result["vol_ratio"],
-            "action":      rec["action"],
-            "confidence":  rec["confidence"],
-            "reason":      rec["reason"],
-            "headlines":   news_result["top_headlines"],
-            "news_count":  news_result["news_count"],
-            "recency":     news_result["recency_bonus"],
-            "news_score":  news_result["sentiment_score"],
-            "price_score": price_result["score"],
-            "stop":        levels["stop"],
-            "target":      levels["target"],
-            "risk_pct":    levels["risk_pct"],
+            "ticker":     ticker,
+            "company":    (info.get("longName") or info.get("shortName") or ticker)[:28],
+            "sector":     info.get("sector") or "—",
+            "action":     rec["action"],
+            "confidence": rec["confidence"],
+            "reason":     rec["reason"],
+            "news":       news_result,
+            "intraday":   intraday_result,
         }
     except Exception:
         return None
@@ -418,219 +385,237 @@ def scan_ticker(ticker: str, atr_mult: float) -> dict | None:
 #  SIDEBAR
 # ─────────────────────────────────────────────
 with st.sidebar:
-    st.title("📰 NewsFlow Scanner")
-    st.caption("News-first stock scanner · Yahoo Finance")
+    st.title("⚡ NewsFlow Day Trader")
+    st.caption("Momentum pullback · Intraday only · Small account")
     st.divider()
 
     watchlist_name = st.selectbox("Watchlist", list(WATCHLISTS.keys()))
-    tickers = WATCHLISTS[watchlist_name]
+    tickers        = WATCHLISTS[watchlist_name]
     st.caption(f"{len(tickers)} tickers")
 
     st.divider()
-    st.subheader("Settings")
-    atr_mult = st.slider("Stop Loss ATR Multiplier", 0.5, 3.0, 1.5, 0.25,
-        help="Higher = wider stop, more room to breathe")
-    min_confidence = st.slider("Min Confidence % to show", 0, 90, 50,
-        help="Only show BUY signals above this confidence level")
+    st.subheader("Filters")
+    min_conf = st.slider("Min Confidence %", 0, 90, 50)
+    show_wait= st.checkbox("Show WAIT signals too", value=True)
 
     st.divider()
-    run = st.button("🔍 Scan for BUY signals", use_container_width=True, type="primary")
+    st.markdown("**Account size: $500–$2,000**")
+    st.caption("Position sizes are calculated risking max $12.50 per trade (1% of $1,250 midpoint). Adjust in code if needed.")
 
     st.divider()
-    st.caption("💡 Best run after 4 PM market close for next-day picks.")
-    st.caption("⚠ Not financial advice. Always do your own research.")
+    run = st.button("⚡ Scan Now", use_container_width=True, type="primary")
+
+    st.divider()
+    st.markdown("**Your trading flow:**")
+    st.caption("1. Run scanner during market hours")
+    st.caption("2. Open BUY NOW picks in TradingView")
+    st.caption("3. Apply NewsFlow v3 Pine Script")
+    st.caption("4. Confirm Daily trend is bullish")
+    st.caption("5. On 15min — wait for pullback candle")
+    st.caption("6. Enter when momentum resumes")
+    st.caption("7. Close before market close (4 PM)")
+    st.divider()
+    st.caption("⚠ Not financial advice.")
 
 
 # ─────────────────────────────────────────────
 #  HEADER
 # ─────────────────────────────────────────────
-st.title("📰 NewsFlow Scanner")
-st.caption(f"Scans Yahoo Finance news · recommends stocks to buy tomorrow · {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}")
+now_et = datetime.datetime.now()
+st.title("⚡ NewsFlow Day Trader")
+st.caption(f"Momentum pullback scanner · {now_et.strftime('%Y-%m-%d %H:%M')} · Intraday only — close all positions by 4 PM")
+
+# Market hours warning
+hour = now_et.hour
+if hour < 9 or (hour == 9 and now_et.minute < 30):
+    st.warning("⏰ Market not open yet. Pre-market data will be used — signals will update once market opens at 9:30 AM ET.")
+elif hour >= 15 and now_et.minute >= 30:
+    st.error("🔔 Market closes in under 30 minutes. Close any open positions before 4 PM ET.")
+elif hour >= 16:
+    st.error("🔴 Market is closed. Run this scanner tomorrow during market hours.")
 
 if not run:
-    st.info("👈 Select a watchlist and click **Scan for BUY signals** to begin.")
+    st.info("👈 Click **Scan Now** to find momentum pullback setups right now.")
 
-    st.markdown("### How it works")
-    c1, c2, c3 = st.columns(3)
+    st.markdown("### How the momentum pullback works")
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.markdown("**1. News scan**")
-        st.caption("Fetches Yahoo Finance headlines for each stock. Scores them by keyword sentiment weighted by how recent they are.")
+        st.markdown("**1. News catalyst**")
+        st.caption("Stock gets a bullish headline — earnings beat, upgrade, deal announcement.")
     with c2:
-        st.markdown("**2. Price confirmation**")
-        st.caption("Checks if volume, price momentum, and gaps confirm the news signal. News drives the decision — price is a secondary check.")
+        st.markdown("**2. Initial surge**")
+        st.caption("Price spikes up on heavy volume. Don't chase this — wait.")
     with c3:
-        st.markdown("**3. BUY recommendation**")
-        st.caption("Combines both signals into a BUY / HOLD / AVOID call with a confidence %, a plain-English reason, and entry/stop/target levels.")
+        st.markdown("**3. Pullback**")
+        st.caption("Price retraces 20–65% of the move. This is your entry zone.")
+    with c4:
+        st.markdown("**4. Resumption**")
+        st.caption("Price turns back up on a 5-min or 15-min bullish candle. Enter here.")
     st.stop()
 
 
 # ─────────────────────────────────────────────
 #  SCAN
 # ─────────────────────────────────────────────
-all_results = []
-buy_results = []
-
+results = []
 progress = st.progress(0, text="Starting scan…")
 status   = st.empty()
 
 for i, ticker in enumerate(tickers):
     progress.progress((i + 1) / len(tickers), text=f"Scanning {ticker}… ({i+1}/{len(tickers)})")
-    status.caption(f"Fetching news and price data for **{ticker}**…")
-    result = scan_ticker(ticker, atr_mult)
-    if result:
-        all_results.append(result)
-        if result["action"] == "BUY" and result["confidence"] >= min_confidence:
-            buy_results.append(result)
-    time.sleep(0.3)
+    status.caption(f"Fetching intraday data for **{ticker}**…")
+    r = scan(ticker)
+    if r and r["confidence"] >= min_conf:
+        if r["action"] == "BUY NOW" or (show_wait and r["action"] == "WAIT"):
+            results.append(r)
+    time.sleep(0.4)
 
 progress.empty()
 status.empty()
 
-# Sort BUY results by confidence descending
-buy_results.sort(key=lambda x: x["confidence"], reverse=True)
-all_results.sort(key=lambda x: x["confidence"], reverse=True)
+results.sort(key=lambda x: (x["action"] == "BUY NOW", x["confidence"]), reverse=True)
 
 # ─────────────────────────────────────────────
-#  SUMMARY METRICS
+#  SUMMARY
 # ─────────────────────────────────────────────
-total_scanned = len(all_results)
-buy_count     = len(buy_results)
-hold_count    = sum(1 for r in all_results if r["action"] == "HOLD")
-avoid_count   = sum(1 for r in all_results if r["action"] == "AVOID")
-avg_conf      = round(sum(r["confidence"] for r in buy_results) / buy_count, 1) if buy_count else 0
+buy_now = [r for r in results if r["action"] == "BUY NOW"]
+waiting = [r for r in results if r["action"] == "WAIT"]
 
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Stocks Scanned", total_scanned)
-col2.metric("BUY Signals",    buy_count,    delta=f"{buy_count} actionable")
-col3.metric("Avg Confidence", f"{avg_conf}%")
-col4.metric("Hold / Avoid",   f"{hold_count} / {avoid_count}")
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Scanned",    len(tickers))
+c2.metric("BUY NOW",    len(buy_now), delta=f"{len(buy_now)} ready to enter")
+c3.metric("WAIT",       len(waiting), delta="pullback pending")
+c4.metric("Avg Conf",   f"{round(sum(r['confidence'] for r in results)/len(results),1)}%" if results else "—")
 
 st.divider()
 
-# ─────────────────────────────────────────────
-#  RESULTS
-# ─────────────────────────────────────────────
-if not buy_results:
-    st.warning("No BUY signals found with the current settings. Try lowering the Min Confidence slider, or run again after market close when more news is available.")
+if not results:
+    st.warning("No setups found right now. The market may be quiet or no stocks have pulled back yet. Try again in 15–30 minutes.")
     st.stop()
 
-st.subheader(f"📈 {buy_count} BUY Signal{'s' if buy_count != 1 else ''} Found")
-st.caption("Sorted by confidence · News sentiment is the primary driver · Price action is a secondary confirmation")
 
-for r in buy_results:
-    conf     = r["confidence"]
-    conf_col = "#00cc66" if conf >= 70 else "#ffaa00" if conf >= 50 else "#ff8c00"
-    chg_col  = "green" if r["change_pct"] >= 0 else "red"
-    chg_str  = f"+{r['change_pct']}%" if r["change_pct"] >= 0 else f"{r['change_pct']}%"
-    tv_url   = f"https://finance.yahoo.com/quote/{r['ticker']}"
-    tv_chart = f"https://www.tradingview.com/chart/?symbol={r['ticker']}"
+# ─────────────────────────────────────────────
+#  RESULT CARDS
+# ─────────────────────────────────────────────
+def render_card(r):
+    intra = r["intraday"]
+    news  = r["news"]
+    conf  = r["confidence"]
+    action= r["action"]
+
+    conf_col  = "#00cc66" if conf >= 70 else "#ffaa00" if conf >= 50 else "#ff8c00"
+    pill_cls  = "buy-pill" if action == "BUY NOW" else "wait-pill"
+    tv_url    = f"https://www.tradingview.com/chart/?symbol={r['ticker']}"
+    yf_url    = f"https://finance.yahoo.com/quote/{r['ticker']}"
 
     with st.container(border=True):
-        # ── Row 1: ticker + recommendation ──
-        h1, h2, h3 = st.columns([3, 4, 3])
+        h1, h2, h3 = st.columns([2, 3, 3])
 
         with h1:
             st.markdown(f"### {r['ticker']}")
-            st.caption(f"{r['company']} · {r['sector']}")
+            st.caption(f"{r['company']}")
+            st.caption(f"{r['sector']}")
 
         with h2:
             st.markdown(
-                f'<span class="buy-pill">BUY</span> &nbsp; '
-                f'<span style="font-size:22px; font-weight:600; color:{conf_col}">{conf}%</span> '
-                f'<span style="font-size:13px; color:#888">confidence</span>',
-                unsafe_allow_html=True
-            )
-            # Confidence bar
+                f'<span class="{pill_cls}">{action}</span> &nbsp;'
+                f'<span style="font-size:22px;font-weight:600;color:{conf_col}">{conf}%</span> '
+                f'<span style="font-size:12px;color:#888">confidence</span>',
+                unsafe_allow_html=True)
             st.markdown(
-                f'<div class="conf-bar-wrap">'
-                f'<div style="height:8px;width:{conf}%;background:{conf_col};border-radius:6px"></div>'
-                f'</div>',
-                unsafe_allow_html=True
-            )
+                f'<div style="height:8px;width:{conf}%;background:{conf_col};border-radius:6px;margin-top:4px"></div>',
+                unsafe_allow_html=True)
+            st.caption(r["reason"])
 
         with h3:
-            st.metric("Price",  f"${r['price']}", chg_str)
+            if intra:
+                gap_col = "green" if intra["gap_pct"] >= 0 else "red"
+                st.markdown(f"**${intra['price']}** &nbsp; "
+                            f"<span style='color:{gap_col}'>Gap {'+' if intra['gap_pct']>=0 else ''}{intra['gap_pct']}%</span>",
+                            unsafe_allow_html=True)
+                st.caption(f"Setup: **{intra['setup_label']}** · Pullback: {intra['pullback_pct']}%")
 
-        # ── Row 2: reason ──
-        st.markdown(
-            f'<div class="reason-text">💬 {r["reason"]}</div>',
-            unsafe_allow_html=True
-        )
+        if intra:
+            st.markdown("")
+            col1, col2, col3, col4, col5 = st.columns(5)
+            col1.metric("Entry",   f"${intra['price']}")
+            col2.metric("Stop",    f"${intra['stop']}",   delta=f"-{intra['risk_pct']}%", delta_color="inverse")
+            col3.metric("Target",  f"${intra['target']}", delta=f"+{round(abs(intra['target']-intra['price'])/intra['price']*100,1)}%")
+            col4.metric("Shares",  intra["shares"],        help="Based on $12.50 max risk (1% of $1,250)")
+            col5.metric("Cost",    f"${intra['trade_cost']}")
+
+            # Intraday signal tags
+            tags = ""
+            if intra["gap_pct"] >= 1:       tags += '<span class="tag tag-gap">GAP</span>'
+            if intra["vol_ratio"] >= 1.5:   tags += f'<span class="tag tag-vol">VOL {intra["vol_ratio"]}×</span>'
+            if intra["surged"]:             tags += '<span class="tag tag-mom">SURGE</span>'
+            if intra["pulled_back"]:        tags += '<span class="tag tag-mom">PULLBACK</span>'
+            if news["fresh"]:               tags += '<span class="tag tag-news">FRESH NEWS</span>'
+            if tags:
+                st.markdown(tags, unsafe_allow_html=True)
+
+            # 15-min stats
+            st.markdown("")
+            sc1, sc2, sc3, sc4 = st.columns(4)
+            sc1.caption(f"15m ATR: **{intra['atr15']}**")
+            sc2.caption(f"15m RSI: **{intra['rsi15']}**")
+            sc3.caption(f"Above EMA9: **{'Yes' if intra['above_ema'] else 'No'}**")
+            sc4.caption(f"News articles: **{news['count']}**")
+
+        # Headlines
+        if news["headlines"]:
+            st.markdown("**Yahoo Finance headlines:**")
+            for hl in news["headlines"]:
+                st.markdown(f'<div class="news-hl">📰 {hl}</div>', unsafe_allow_html=True)
 
         st.markdown("")
-
-        # ── Row 3: trade levels + news details ──
-        d1, d2, d3, d4 = st.columns(4)
-        d1.metric("Entry",  f"${r['price']}")
-        d2.metric("Stop",   f"${r['stop']}",   delta=f"-{r['risk_pct']}% risk", delta_color="inverse")
-        d3.metric("Target", f"${r['target']}", delta=f"+{round(abs(r['target']-r['price'])/r['price']*100,1)}%")
-        d4.metric("Vol Spike", f"{r['vol_ratio']}×")
-
-        # ── Headlines ──
-        if r["headlines"]:
-            st.markdown("**Recent headlines from Yahoo Finance:**")
-            for hl in r["headlines"]:
-                st.markdown(
-                    f'<div class="headline-text">📰 {hl}</div>',
-                    unsafe_allow_html=True
-                )
-        else:
-            st.caption("No specific headlines matched — signal based on general news volume.")
-
-        # ── Score breakdown + links ──
-        st.markdown("")
-        sb1, sb2, sb3, sb4 = st.columns(4)
-        sb1.caption(f"News score: **{r['news_score']}/100**")
-        sb2.caption(f"Price score: **{r['price_score']}/100**")
-        sb3.caption(f"Articles scanned: **{r['news_count']}**")
-        recency_label = "🟢 Fresh news" if r["recency"] else "🟡 Older news"
-        sb4.caption(recency_label)
-
         st.markdown(
-            f'<a href="{tv_chart}" target="_blank" class="tv-btn">📈 Open in TradingView</a> &nbsp; '
-            f'<a href="{tv_url}"   target="_blank" class="tv-btn" style="background:#6c3fc0">📰 Yahoo Finance</a>',
-            unsafe_allow_html=True
-        )
+            f'<a href="{tv_url}" target="_blank" style="background:#2962ff;color:white;padding:4px 12px;border-radius:6px;font-size:12px;text-decoration:none;font-weight:500">📈 TradingView</a> &nbsp;'
+            f'<a href="{yf_url}" target="_blank" style="background:#6c3fc0;color:white;padding:4px 12px;border-radius:6px;font-size:12px;text-decoration:none;font-weight:500">📰 Yahoo Finance</a>',
+            unsafe_allow_html=True)
+
+
+# BUY NOW section
+if buy_now:
+    st.subheader(f"✅ {len(buy_now)} Ready to Enter")
+    st.caption("Pullback is in place — momentum resuming. Enter on next bullish 15-min candle.")
+    for r in buy_now:
+        render_card(r)
+
+# WAIT section
+if waiting and show_wait:
+    st.divider()
+    st.subheader(f"⏳ {len(waiting)} Waiting for Pullback")
+    st.caption("Good setups but price hasn't pulled back yet. Set an alert and check back in 15–30 min.")
+    for r in waiting:
+        render_card(r)
 
 # ─────────────────────────────────────────────
-#  EXPORT
+#  DAY TRADING RULES REMINDER
 # ─────────────────────────────────────────────
 st.divider()
-st.subheader("📥 Export")
+with st.expander("📋 Day Trading Rules — read before every session"):
+    st.markdown("""
+**Entry rules (all must be true):**
+- Scanner shows BUY NOW
+- TradingView Pine Script shows Daily trend = Bullish or Neutral
+- 15-min chart shows a pullback candle followed by a green candle
+- RSI on 15-min is between 40–65 (not overbought)
 
-df_export = pd.DataFrame([{
-    "Ticker":      r["ticker"],
-    "Company":     r["company"],
-    "Action":      r["action"],
-    "Confidence%": r["confidence"],
-    "Price":       r["price"],
-    "Change%":     r["change_pct"],
-    "VolSpike":    r["vol_ratio"],
-    "NewsScore":   r["news_score"],
-    "PriceScore":  r["price_score"],
-    "Stop":        r["stop"],
-    "Target":      r["target"],
-    "Risk%":       r["risk_pct"],
-    "Reason":      r["reason"],
-    "Headlines":   " | ".join(r["headlines"]),
-} for r in buy_results])
+**Exit rules:**
+- Hit target → close the trade
+- Hit stop loss → close immediately, no hesitation
+- 3:30 PM ET → close everything regardless of P&L
 
-col_a, col_b = st.columns(2)
-with col_a:
-    st.download_button(
-        "⬇ Download BUY list as CSV",
-        df_export.to_csv(index=False).encode(),
-        file_name=f"newsflow_buys_{datetime.date.today()}.csv",
-        mime="text/csv",
-        use_container_width=True,
-    )
-with col_b:
-    tv_list = "\n".join(r["ticker"] for r in buy_results)
-    st.download_button(
-        "📈 Download TradingView Watchlist",
-        tv_list.encode(),
-        file_name=f"newsflow_watchlist_{datetime.date.today()}.txt",
-        mime="text/plain",
-        use_container_width=True,
-        help="One ticker per line — importable into TradingView watchlist"
-    )
+**Small account rules ($500–$2,000):**
+- Max 1–2 trades open at the same time
+- Risk max $12.50 per trade (1% of $1,250)
+- Never add to a losing position
+- If you lose 2 trades in a row → stop for the day
+
+**Pattern Day Trader (PDT) rule:**
+- If your account is under $25,000 on a US margin account, you are limited to 3 day trades per rolling 5-day period
+- Use a cash account to avoid PDT restrictions
+    """)
+
+st.caption("⚠ NewsFlow is a research tool, not financial advice. Day trading involves significant risk of loss.")
